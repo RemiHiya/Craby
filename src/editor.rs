@@ -21,35 +21,52 @@ enum Mode {
 }
 
 pub struct Editor {
+    stdout: Stdout,
+    size: (u16, u16),
     cx: u16,
     cy: u16,
     mode: Mode
 }
 
+impl Drop for Editor {
+    fn drop(&mut self) {
+        _ = self.stdout.flush();
+        _ = self.stdout.execute(terminal::LeaveAlternateScreen);
+        _ = terminal::disable_raw_mode();
+    }
+}
 impl Editor {
-    pub fn new() -> Self {
-        Editor {
-            cx: 0,
-            cy: 0,
-            mode: Mode::Normal
-        }
-    }
-
-    pub fn draw(&self, stdout: &mut Stdout) -> anyhow::Result<()> {
-        stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
-        stdout.flush()?;
-        Ok(())
-    }
-
-    pub fn run(&mut self) -> anyhow::Result<()> {
+    pub fn new() -> anyhow::Result<Self> {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
         stdout
             .execute(terminal::EnterAlternateScreen)?
             .execute(terminal::Clear(terminal::ClearType::All))?;
+        Ok(Editor {
+            stdout,
+            size: terminal::size()?,
+            cx: 0,
+            cy: 0,
+            mode: Mode::Normal
+        })
+    }
 
+    pub fn draw(&mut self) -> anyhow::Result<()> {
+        self.draw_statusline()?;
+        self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
+        self.stdout.flush()?;
+        Ok(())
+    }
+
+    pub fn draw_statusline(&mut self) -> anyhow::Result<()> {
+        self.stdout.queue(cursor::MoveTo(0, self.size.1 - 2))?;
+        self.stdout.queue(style::Print("Status line"))?;
+        Ok(())
+    }
+
+    pub fn run(&mut self) -> anyhow::Result<()> {
         loop {
-            self.draw(&mut stdout)?;
+            self.draw()?;
             if let Some(action) = self.handle_event(read()?)? {
                 match action {
                     Action::Quit => break,
@@ -59,8 +76,8 @@ impl Editor {
                     Action::MoveRight => self.cx += 1u16,
                     Action::EnterMode(new) => self.mode = new,
                     Action::AddChar(c) => {
-                        stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
-                        stdout.queue(style::Print(c))?;
+                        self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
+                        self.stdout.queue(style::Print(c))?;
                         self.cx += 1;
                     }
                     Action::NewLine => {
@@ -70,8 +87,6 @@ impl Editor {
                 }
             }
         }
-        stdout.execute(terminal::LeaveAlternateScreen)?;
-        terminal::disable_raw_mode()?;
         Ok(())
     }
 
@@ -83,7 +98,7 @@ impl Editor {
         }
     }
 
-    fn handle_normal_event(&mut self, ev: event::Event) -> anyhow::Result<Option<Action>> {
+    fn handle_normal_event(&self, ev: event::Event) -> anyhow::Result<Option<Action>> {
         match ev {
             event::Event::Key(event::KeyEvent {
                                   code,
@@ -102,7 +117,7 @@ impl Editor {
         }
     }
 
-    fn handle_insert_event(&mut self, ev: event::Event) -> anyhow::Result<Option<Action>> {
+    fn handle_insert_event(&self, ev: event::Event) -> anyhow::Result<Option<Action>> {
         match ev {
             event::Event::Key(event::KeyEvent {
                                   code,
