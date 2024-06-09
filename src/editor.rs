@@ -2,6 +2,7 @@ use std::io::{stdout, Stdout, Write};
 use crossterm::{terminal, ExecutableCommand, QueueableCommand, cursor, event, style};
 use crossterm::event::{read};
 use crossterm::style::{Color, Stylize};
+use crate::buffer::Buffer;
 
 enum Action {
     Quit,
@@ -23,8 +24,11 @@ enum Mode {
 }
 
 pub struct Editor {
+    buffer: Buffer,
     stdout: Stdout,
     size: (u16, u16),
+    vtop: u16,
+    vleft: u16,
     cx: u16,
     cy: u16,
     mode: Mode
@@ -37,32 +41,69 @@ impl Drop for Editor {
         _ = terminal::disable_raw_mode();
     }
 }
+
 impl Editor {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(buffer: Buffer) -> anyhow::Result<Self> {
         let mut stdout = stdout();
         terminal::enable_raw_mode()?;
         stdout
             .execute(terminal::EnterAlternateScreen)?
             .execute(terminal::Clear(terminal::ClearType::All))?;
+        let size = terminal::size()?;
         Ok(Editor {
+            buffer,
             stdout,
-            size: terminal::size()?,
+            size,
+            vtop: 0,
+            vleft: 0,
             cx: 0,
             cy: 0,
             mode: Mode::Normal
         })
     }
 
+    fn vwidth(&self) -> u16 {
+        self.size.0
+    }
+
+    fn vheight(&self) -> u16 {
+        self.size.1 - 2
+    }
+
+    fn line_length(&self) -> u16 {
+        if let Some(line) = self.viewport_line(self.cy) {
+            return line.len() as u16;
+        }
+        0
+    }
+
+    fn viewport_line(&self, n: u16) -> Option<String> {
+        let buffer_line = self.vtop + n;
+        self.buffer.get(buffer_line as usize)
+    }
+
     pub fn draw(&mut self) -> anyhow::Result<()> {
+        self.draw_viewport()?;
         self.draw_statusline()?;
         self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
         self.stdout.flush()?;
         Ok(())
     }
 
+    pub fn draw_viewport(&mut self) -> anyhow::Result<()> {
+        let vwidth = self.vwidth() as usize;
+        for i in 0..self.vheight() {
+            let line = self.viewport_line(i).unwrap_or_else(|| String::new());
+            self.stdout
+                .queue(cursor::MoveTo(0, i))?
+                .queue(style::Print(format!("{line:<width$}", width=vwidth)))?;
+        }
+        Ok(())
+    }
+
     pub fn draw_statusline(&mut self) -> anyhow::Result<()> {
         let mode = format!(" {:?} ", self.mode).to_uppercase();
-        let file = " src/main.rs";
+        let file = format!(" {}", self.buffer.file.as_deref().unwrap_or("untitled"));
         let pos = format!(" {}:{} ", self.cx, self.cy);
 
         let file_width = self.size.0 - mode.len() as u16 - pos.len() as u16 - 2;
@@ -98,9 +139,27 @@ impl Editor {
                 match action {
                     Action::Quit => break,
                     Action::MoveUp => self.cy = self.cy.saturating_sub(1),
-                    Action::MoveDown => self.cy += 1u16,
-                    Action::MoveLeft => self.cx = self.cx.saturating_sub(1),
-                    Action::MoveRight => self.cx += 1u16,
+                    Action::MoveDown => {
+                        self.cy += 1;
+                        if self.cy >= self.vheight() {
+                            self.cy = self.vheight() - 1;
+                        }
+                    },
+                    Action::MoveLeft => {
+                        self.cx = self.cx.saturating_sub(1);
+                        if self.cx < self.vleft {
+                            self.cx = self.vleft;
+                        }
+                    },
+                    Action::MoveRight => {
+                        self.cx += 1;
+                        if self.cx >= self.line_length() {
+                            self.cx = self.line_length();
+                        }
+                        if self.cx >= self.vwidth() {
+                            self.cx = self.vwidth() - 1;
+                        }
+                    },
                     Action::EnterMode(new) => self.mode = new,
                     Action::AddChar(c) => {
                         self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
