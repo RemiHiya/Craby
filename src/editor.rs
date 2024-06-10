@@ -133,8 +133,23 @@ impl Editor {
         Ok(())
     }
 
+    fn check_bounds(&mut self) {
+        let l = self.line_length();
+        if self.cx >= l {
+            if l > 0 {
+                self.cx = self.line_length() - 1;
+            } else {
+                self.cx = 0;
+            }
+        }
+        if self.cx >= self.vwidth() {
+            self.cx = self.vwidth() - 1;
+        }
+    }
+
     pub fn run(&mut self) -> anyhow::Result<()> {
         loop {
+            self.check_bounds();
             self.draw()?;
             if let Some(action) = self.handle_event(read()?)? {
                 match action {
@@ -143,6 +158,8 @@ impl Editor {
                     Action::MoveDown => {
                         self.cy += 1;
                         if self.cy >= self.vheight() {
+                            // Scroll
+                            self.vtop += 1;
                             self.cy = self.vheight() - 1;
                         }
                     },
@@ -154,12 +171,6 @@ impl Editor {
                     },
                     Action::MoveRight => {
                         self.cx += 1;
-                        if self.cx >= self.line_length() {
-                            self.cx = self.line_length();
-                        }
-                        if self.cx >= self.vwidth() {
-                            self.cx = self.vwidth() - 1;
-                        }
                     },
                     Action::EnterMode(new) => self.mode = new,
                     Action::AddChar(c) => {
