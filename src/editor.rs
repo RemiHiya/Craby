@@ -3,7 +3,6 @@ use crossterm::{terminal, ExecutableCommand, QueueableCommand, cursor, event, st
 use crossterm::event::{read};
 use crossterm::style::{Color, Stylize};
 use crate::buffer::Buffer;
-use crate::log;
 
 enum Action {
     Quit,
@@ -18,6 +17,8 @@ enum Action {
 
     EnterMode(Mode),
     PageUp,
+    MoveToLineEnd,
+    MoveToLineStart,
 }
 
 #[derive(Debug)]
@@ -78,6 +79,10 @@ impl Editor {
             return line.len() as u16;
         }
         0
+    }
+
+    fn buffer_line(&self) -> u16 {
+        self.vtop + self.cy
     }
 
     fn viewport_line(&self, n: u16) -> Option<String> {
@@ -192,17 +197,21 @@ impl Editor {
                         self.vtop = self.vtop.saturating_sub(self.vheight())
                     }
                     Action::PageDown => {
-                        log!("{}", self.buffer.len());
                         if self.buffer.len() > (self.vtop + self.vheight()) as usize {
                             self.vtop += self.vheight();
                         } else {
                             self.vtop = self.buffer.len() as u16 - 1;
                         }
                     }
+                    Action::MoveToLineEnd => {
+                        self.cx = self.line_length().saturating_sub(1);
+                    }
+                    Action::MoveToLineStart => {
+                        self.cx = 0;
+                    }
                     Action::EnterMode(new) => self.mode = new,
                     Action::AddChar(c) => {
-                        self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
-                        self.stdout.queue(style::Print(c))?;
+                        self.buffer.insert(self.cx, self.buffer_line(), c);
                         self.cx += 1;
                     }
                     Action::NewLine => {
@@ -235,6 +244,8 @@ impl Editor {
                               ..
                           }) => match code {
             event::KeyCode::Char('q') => Ok(Some(Action::Quit)),
+            event::KeyCode::Char('$') => Ok(Some(Action::MoveToLineEnd)),
+            event::KeyCode::Char('0') => Ok(Some(Action::MoveToLineStart)),
             event::KeyCode::Char('h') | event::KeyCode::Left  => Ok(Some(Action::MoveLeft)),
             event::KeyCode::Char('l') | event::KeyCode::Right => Ok(Some(Action::MoveRight)),
             event::KeyCode::Char('k') | event::KeyCode::Up    => Ok(Some(Action::MoveUp)),
