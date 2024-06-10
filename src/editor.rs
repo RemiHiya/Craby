@@ -3,6 +3,7 @@ use crossterm::{terminal, ExecutableCommand, QueueableCommand, cursor, event, st
 use crossterm::event::{read};
 use crossterm::style::{Color, Stylize};
 use crate::buffer::Buffer;
+use crate::log;
 
 enum Action {
     Quit,
@@ -10,11 +11,13 @@ enum Action {
     MoveDown,
     MoveLeft,
     MoveRight,
+    PageDown,
 
     AddChar(char),
     NewLine,
 
-    EnterMode(Mode)
+    EnterMode(Mode),
+    PageUp,
 }
 
 #[derive(Debug)]
@@ -185,6 +188,17 @@ impl Editor {
                     Action::MoveRight => {
                         self.cx += 1;
                     },
+                    Action::PageUp => {
+                        self.vtop = self.vtop.saturating_sub(self.vheight())
+                    }
+                    Action::PageDown => {
+                        log!("{}", self.buffer.len());
+                        if self.buffer.len() > (self.vtop + self.vheight()) as usize {
+                            self.vtop += self.vheight();
+                        } else {
+                            self.vtop = self.buffer.len() as u16 - 1;
+                        }
+                    }
                     Action::EnterMode(new) => self.mode = new,
                     Action::AddChar(c) => {
                         self.stdout.queue(cursor::MoveTo(self.cx, self.cy))?;
@@ -213,23 +227,30 @@ impl Editor {
     }
 
     fn handle_normal_event(&self, ev: event::Event) -> anyhow::Result<Option<Action>> {
-        match ev {
-            event::Event::Key(event::KeyEvent {
-                                  code,
-                                  kind: event::KeyEventKind::Press,
-                                  ..
-                              }) => match code {
-                event::KeyCode::Char('q') => Ok(Some(Action::Quit)),
-                event::KeyCode::Char('h') | event::KeyCode::Left  => Ok(Some(Action::MoveLeft)),
-                event::KeyCode::Char('l') | event::KeyCode::Right => Ok(Some(Action::MoveRight)),
-                event::KeyCode::Char('k') | event::KeyCode::Up    => Ok(Some(Action::MoveUp)),
-                event::KeyCode::Char('j') | event::KeyCode::Down  => Ok(Some(Action::MoveDown)),
-                event::KeyCode::Char('i') => Ok(Some(Action::EnterMode(Mode::Insert))),
-                _ => Ok(None),
+    match ev {
+        event::Event::Key(event::KeyEvent {
+                              code,
+                              kind: event::KeyEventKind::Press,
+                              modifiers,
+                              ..
+                          }) => match code {
+            event::KeyCode::Char('q') => Ok(Some(Action::Quit)),
+            event::KeyCode::Char('h') | event::KeyCode::Left  => Ok(Some(Action::MoveLeft)),
+            event::KeyCode::Char('l') | event::KeyCode::Right => Ok(Some(Action::MoveRight)),
+            event::KeyCode::Char('k') | event::KeyCode::Up    => Ok(Some(Action::MoveUp)),
+            event::KeyCode::Char('j') | event::KeyCode::Down  => Ok(Some(Action::MoveDown)),
+            event::KeyCode::Char('i')              => Ok(Some(Action::EnterMode(Mode::Insert))),
+            event::KeyCode::Char('f') if matches!(modifiers, event::KeyModifiers::CONTROL) => {
+                Ok(Some(Action::PageDown))
+            },
+            event::KeyCode::Char('b') if matches!(modifiers, event::KeyModifiers::CONTROL) => {
+                Ok(Some(Action::PageUp))
             },
             _ => Ok(None),
-        }
+        },
+        _ => Ok(None),
     }
+}
 
     fn handle_insert_event(&self, ev: event::Event) -> anyhow::Result<Option<Action>> {
         match ev {

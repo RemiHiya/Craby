@@ -14,7 +14,7 @@ macro_rules! log {
     ($($arg:tt)*) => {
         {
             let log_message = format!($($arg)*);
-            $crate::LOGGER.get_or_init(|| $crate::Logger::new("red.log")).log(&log_message);
+            $crate::LOGGER.get_or_init(|| $crate::Logger::new("craby.log")).log(&log_message);
         }
     };
 }
