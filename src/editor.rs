@@ -3,6 +3,7 @@ use crossterm::{terminal, ExecutableCommand, QueueableCommand, cursor, event, st
 use crossterm::event::{read};
 use crossterm::style::{Color, Stylize};
 use crate::buffer::Buffer;
+use crate::log;
 
 enum Action {
     Quit,
@@ -109,7 +110,7 @@ impl Editor {
         let file_width = self.size.0 - mode.len() as u16 - pos.len() as u16 - 2;
 
         let normal_bg = Color::Rgb {r:184, g:144, b:243};
-        let insert_bg = 1;
+        //let insert_bg = 1;
         let classic_bg = Color::Rgb {r:67, g:70, b:89};
 
         self.stdout.queue(cursor::MoveTo(0, self.size.1 - 2))?;
