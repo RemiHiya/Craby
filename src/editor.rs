@@ -3,7 +3,6 @@ use crossterm::{terminal, ExecutableCommand, QueueableCommand, cursor, event, st
 use crossterm::event::{read};
 use crossterm::style::{Color, Stylize};
 use crate::buffer::Buffer;
-use crate::log;
 
 enum Action {
     Quit,
@@ -145,6 +144,11 @@ impl Editor {
         if self.cx >= self.vwidth() {
             self.cx = self.vwidth() - 1;
         }
+
+        let line_on_buffer = self.cy + self.vtop;
+        if line_on_buffer as usize >= self.buffer.len() {
+            self.cy = self.buffer.len() as u16 - self.vtop - 1;
+        }
     }
 
     pub fn run(&mut self) -> anyhow::Result<()> {
@@ -154,11 +158,20 @@ impl Editor {
             if let Some(action) = self.handle_event(read()?)? {
                 match action {
                     Action::Quit => break,
-                    Action::MoveUp => self.cy = self.cy.saturating_sub(1),
+                    Action::MoveUp => {
+                        if self.cy == 0 {
+                            // Scroll up
+                            if self.vtop > 0 {
+                                self.vtop -= 1;
+                            }
+                        } else {
+                            self.cy = self.cy.saturating_sub(1)
+                        }
+                    },
                     Action::MoveDown => {
                         self.cy += 1;
                         if self.cy >= self.vheight() {
-                            // Scroll
+                            // Scroll down
                             self.vtop += 1;
                             self.cy = self.vheight() - 1;
                         }
